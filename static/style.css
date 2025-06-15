@@ -1,0 +1,120 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Nicer font */
+    margin: 0;
+    background-color: #e9ebee; /* Lighter grey */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    padding: 10px; /* Add some padding for smaller screens */
+    box-sizing: border-box;
+}
+
+#chat-container {
+    width: 100%;
+    max-width: 500px; /* Max width for chat */
+    height: calc(100vh - 40px); /* Adjust height */
+    max-height: 700px; /* Max height */
+    background-color: #fff;
+    border-radius: 10px; /* Slightly more rounded corners */
+    box-shadow: 0 5px 15px rgba(0,0,0,0.15); /* Softer shadow */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#chat-window {
+    flex-grow: 1;
+    padding: 20px;
+    overflow-y: auto;
+    border-bottom: 1px solid #ddd; /* Lighter border */
+    scroll-behavior: smooth; /* Smooth scrolling */
+}
+
+.message-area {
+    display: flex; /* For input and button */
+    padding: 10px;
+    border-top: 1px solid #ddd;
+    background-color: #f9f9f9;
+}
+
+#message-input {
+    flex-grow: 1;
+    border: 1px solid #ccc;
+    padding: 12px; /* Increased padding */
+    font-size: 1em;
+    border-radius: 20px; /* Rounded input */
+    margin-right: 10px;
+}
+
+#message-input:focus {
+    outline: none;
+    border-color: #007bff;
+}
+
+#send-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 0 20px; /* Padding for button text */
+    font-size: 1em;
+    cursor: pointer;
+    border-radius: 20px; /* Rounded button */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#send-button:hover {
+    background-color: #0056b3;
+}
+
+.message {
+    margin-bottom: 15px;
+    padding: 12px 18px; /* Increased padding */
+    border-radius: 18px; /* More rounded messages */
+    line-height: 1.5;
+    max-width: 80%; /* Max width for messages */
+    word-wrap: break-word; /* Break long words */
+}
+
+.user-message {
+    background-color: #007bff;
+    color: white;
+    align-self: flex-end;
+    margin-left: auto; /* Push to right */
+}
+
+.bot-message {
+    background-color: #f1f0f0; /* Lighter bot message */
+    color: #2c2c2c; /* Darker text for bot */
+    align-self: flex-start;
+    margin-right: auto; /* Push to left */
+}
+
+.bot-message img {
+    max-width: 100%;
+    border-radius: 10px; /* Rounded images */
+    margin-top: 10px;
+    display: block; /* Ensure it's a block element */
+}
+
+.error-message {
+    background-color: #ffebee; /* Light red for errors */
+    color: #c62828; /* Darker red text */
+    border: 1px solid #ef9a9a;
+    align-self: flex-start;
+    margin-right: auto;
+}
+
+/* Added styles */
+.image-load-error {
+    color: red;
+    font-style: italic;
+    padding: 5px 0;
+}
+
+.typing-indicator em, /* If you use em for italic */
+.bot-message i { /* If you use i for italic */
+    color: #555; /* Slightly muted color for thinking/generating messages */
+}
