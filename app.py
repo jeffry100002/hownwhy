@@ -1,22 +1,44 @@
 import os
 from flask import Flask, render_template, request, jsonify
 import google.generativeai as genai
-from google.generativeai import types
+from google.generativeai import types # Still needed for other configs if any
 from PIL import Image
 import io
 import base64
 import logging
 import re
+from dotenv import load_dotenv # Added import
+
+load_dotenv() # Load environment variables from .env file
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# The rest of the file remains the same as the last version where we fixed the image model call
+# This includes:
+# - GEMINI_API_KEY fetching using os.environ (which will now be populated by load_dotenv if .env exists)
+# - Model initializations
+# - SYSTEM_INSTRUCTION_FOR_AUTONOMOUS_IMAGE
+# - @app.route('/') for index
+# - parse_image_generation_tag function
+# - @app.route('/send_message') function
+# - if __name__ == '__main__': block
+
 try:
     gemini_api_key = os.environ['GEMINI_API_KEY']
-    genai.configure(api_key=gemini_api_key)
-except KeyError:
-    logging.critical("CRITICAL: GEMINI_API_KEY environment variable not set.")
-    gemini_api_key = None
+    # Check if key is None or empty after attempting to load from .env / os.environ
+    if not gemini_api_key:
+        logging.critical("CRITICAL: GEMINI_API_KEY not found in environment or .env file.")
+        # Decide behavior: raise error, exit, or let it fail later (current behavior)
+        # For now, we'll keep the existing behavior where gemini_api_key can be None initially
+        # and the route handlers check for it.
+    else:
+        genai.configure(api_key=gemini_api_key)
+        logging.info("GEMINI_API_KEY loaded and configured successfully.")
+
+except KeyError: # This specific KeyError might be less likely now if .env is used correctly
+    logging.critical("CRITICAL: GEMINI_API_KEY environment variable not set and .env not loaded or key missing.")
+    gemini_api_key = None # Ensure it's None if not found
 
 text_model_name = "gemini-1.5-flash-latest"
 image_model_name = "gemini-2.0-flash-preview-image-generation"
@@ -26,7 +48,8 @@ text_generation_config = {
 }
 text_safety_settings = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-    # ... (other safety settings remain the same)
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
 ]
 text_model = genai.GenerativeModel(
@@ -36,7 +59,6 @@ text_model = genai.GenerativeModel(
 )
 image_model = genai.GenerativeModel(model_name=image_model_name)
 
-# --- System Instruction for AI-initiated Images (Refined) ---
 SYSTEM_INSTRUCTION_FOR_AUTONOMOUS_IMAGE = """
 You are a helpful and expressive conversational AI.
 Your goal is to provide informative and engaging text responses.
@@ -71,20 +93,21 @@ def send_message():
     user_message = request.json.get('message')
     logging.info(f"Received message: {user_message}")
 
+    # Access the module-level gemini_api_key variable
+    # This variable is set at startup after load_dotenv()
+    current_api_key = gemini_api_key
+
     chatbot_text_response = "Sorry, I couldn't process your request."
     image_data_uri = None
 
-    if not gemini_api_key:
-        # ... (rest of the function remains the same as the last valid version) ...
-        logging.error("API key not configured.")
-        chatbot_text_response = "Error: API key not configured. Please set GEMINI_API_KEY."
+    if not current_api_key: # Check the module-level variable
+        logging.error("API key not configured (not found in .env or environment).")
+        chatbot_text_response = "Error: API key not configured. Please set GEMINI_API_KEY in your .env file or environment."
         return jsonify({'text': chatbot_text_response, 'image_url': None})
 
     try:
         logging.info(f"Generating text response for prompt: '{user_message}' with system instruction for autonomous images.")
-
         full_prompt_parts = [SYSTEM_INSTRUCTION_FOR_AUTONOMOUS_IMAGE, "User input: " + user_message]
-
         text_gen_response_object = text_model.generate_content(full_prompt_parts)
         ai_text_output = ""
 
@@ -101,7 +124,6 @@ def send_message():
             logging.warning("AI text output was empty after generation attempt.")
 
         logging.info(f"AI Raw Text Output (before parsing for image tag): '{ai_text_output}'")
-
         image_prompt_from_ai, cleaned_text_response = parse_image_generation_tag(ai_text_output)
         chatbot_text_response = cleaned_text_response
 
@@ -110,8 +132,6 @@ def send_message():
             try:
                 image_gen_api_response = image_model.generate_content(
                     contents=[image_prompt_from_ai]
-                    # generation_config can be default or specified if needed,
-                    # but response_modalities was causing an error.
                 )
                 image_generated_this_turn = False
                 text_accompanying_image = []
@@ -147,10 +167,8 @@ def send_message():
         elif not chatbot_text_response.strip() and image_data_uri:
              chatbot_text_response = "Here's an image based on our conversation:"
 
-
     except ValueError as ve:
         logging.error(f"ValueError calling Gemini API: {ve} (Prompt: '{user_message}')", exc_info=True)
-        # ... (error handling remains the same) ...
         if "prompt" in str(ve).lower() and ("blocked" in str(ve).lower() or "safety" in str(ve).lower()):
             chatbot_text_response = "I'm sorry, your request was blocked by the safety filters. Please try a different prompt."
         elif "SAFETY" in str(ve).upper():
@@ -167,14 +185,7 @@ def send_message():
     })
 
 if __name__ == '__main__':
+    # The module-level gemini_api_key is already set (or None) by the time this runs
     if not gemini_api_key:
-        logging.critical("GEMINI_API_KEY is not set for Flask app run.")
+        logging.critical("GEMINI_API_KEY is not set. App will likely fail if API calls are made.")
     app.run(debug=True, host='0.0.0.0', port=5000)
-
-# Ensure all safety settings are copied if they were truncated in the prompt
-# text_safety_settings = [
-#     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-#     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-#     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-#     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-# ]
