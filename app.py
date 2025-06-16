@@ -1,48 +1,33 @@
 import os
 from flask import Flask, render_template, request, jsonify
 import google.generativeai as genai
-from google.generativeai import types # Still needed for other configs if any
+from google.generativeai import types # Ensure types is imported
 from PIL import Image
 import io
 import base64
 import logging
 import re
-from dotenv import load_dotenv # Added import
+from dotenv import load_dotenv
 
-load_dotenv() # Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# The rest of the file remains the same as the last version where we fixed the image model call
-# This includes:
-# - GEMINI_API_KEY fetching using os.environ (which will now be populated by load_dotenv if .env exists)
-# - Model initializations
-# - SYSTEM_INSTRUCTION_FOR_AUTONOMOUS_IMAGE
-# - @app.route('/') for index
-# - parse_image_generation_tag function
-# - @app.route('/send_message') function
-# - if __name__ == '__main__': block
-
+gemini_api_key = None # Initialize
 try:
     gemini_api_key = os.environ['GEMINI_API_KEY']
-    # Check if key is None or empty after attempting to load from .env / os.environ
     if not gemini_api_key:
         logging.critical("CRITICAL: GEMINI_API_KEY not found in environment or .env file.")
-        # Decide behavior: raise error, exit, or let it fail later (current behavior)
-        # For now, we'll keep the existing behavior where gemini_api_key can be None initially
-        # and the route handlers check for it.
     else:
         genai.configure(api_key=gemini_api_key)
         logging.info("GEMINI_API_KEY loaded and configured successfully.")
-
-except KeyError: # This specific KeyError might be less likely now if .env is used correctly
+except KeyError:
     logging.critical("CRITICAL: GEMINI_API_KEY environment variable not set and .env not loaded or key missing.")
-    gemini_api_key = None # Ensure it's None if not found
 
 text_model_name = "gemini-1.5-flash-latest"
 image_model_name = "gemini-2.0-flash-preview-image-generation"
-text_generation_config = {
+text_generation_config_dict = { # Renamed to avoid conflict with types.GenerationConfig instance
     "temperature": 0.8, "top_p": 0.9, "top_k": 50,
     "max_output_tokens": 4096, "response_mime_type": "text/plain",
 }
@@ -55,7 +40,7 @@ text_safety_settings = [
 text_model = genai.GenerativeModel(
     model_name=text_model_name,
     safety_settings=text_safety_settings,
-    generation_config=text_generation_config,
+    generation_config=text_generation_config_dict, # Use the dict here
 )
 image_model = genai.GenerativeModel(model_name=image_model_name)
 
@@ -93,14 +78,11 @@ def send_message():
     user_message = request.json.get('message')
     logging.info(f"Received message: {user_message}")
 
-    # Access the module-level gemini_api_key variable
-    # This variable is set at startup after load_dotenv()
     current_api_key = gemini_api_key
-
     chatbot_text_response = "Sorry, I couldn't process your request."
     image_data_uri = None
 
-    if not current_api_key: # Check the module-level variable
+    if not current_api_key:
         logging.error("API key not configured (not found in .env or environment).")
         chatbot_text_response = "Error: API key not configured. Please set GEMINI_API_KEY in your .env file or environment."
         return jsonify({'text': chatbot_text_response, 'image_url': None})
@@ -130,8 +112,14 @@ def send_message():
         if image_prompt_from_ai:
             logging.info(f"AI suggested image generation with prompt: '{image_prompt_from_ai}'")
             try:
+                # MODIFICATION HERE: Create GenerationConfig instance and set attribute
+                image_gen_config = types.GenerationConfig()
+                # Using order from documentation first: ['TEXT', 'IMAGE']
+                image_gen_config.response_modalities = ['TEXT', 'IMAGE']
+
                 image_gen_api_response = image_model.generate_content(
-                    contents=[image_prompt_from_ai]
+                    contents=[image_prompt_from_ai],
+                    generation_config=image_gen_config # Pass the configured instance
                 )
                 image_generated_this_turn = False
                 text_accompanying_image = []
@@ -154,28 +142,32 @@ def send_message():
                 if image_generated_this_turn:
                     if text_accompanying_image:
                         chatbot_text_response += "\n\n---\n*Image description from model:* " + " ".join(text_accompanying_image)
-                elif not (image_gen_api_response.prompt_feedback and image_gen_api_response.prompt_feedback.block_reason):
+                elif not (image_gen_api_response.prompt_feedback and image_gen_api_response.prompt_feedback.block_reason): # Avoid double message
                     logging.warning("AI suggested an image, but image model did not return image data (and not due to prompt block).")
 
-            except Exception as img_e:
-                logging.error(f"Error during AI-suggested image generation: {img_e}", exc_info=True)
-                chatbot_text_response += f"\n*(Sorry, I couldn't generate the suggested image: {str(img_e)})*"
+            except Exception as img_e: # Catch potential AttributeError if response_modalities cannot be set
+                logging.error(f"Error during AI-suggested image generation (could be AttributeError or API error): {img_e}", exc_info=True)
+                if isinstance(img_e, AttributeError) and 'response_modalities' in str(img_e):
+                    chatbot_text_response += f"\n*(Sorry, there's a configuration issue setting image properties: {str(img_e)})*"
+                else: # For other errors, including potential 400 from API
+                    chatbot_text_response += f"\n*(Sorry, I couldn't generate the suggested image: {str(img_e)})*"
 
         if not chatbot_text_response.strip() and not image_data_uri:
             logging.info("Response is empty after processing, using default.")
             chatbot_text_response = "I received your message and processed it, but I don't have a specific text reply or image for this."
-        elif not chatbot_text_response.strip() and image_data_uri:
+        elif not chatbot_text_response.strip() and image_data_uri: # Image generated, but main text was only the tag
              chatbot_text_response = "Here's an image based on our conversation:"
 
-    except ValueError as ve:
-        logging.error(f"ValueError calling Gemini API: {ve} (Prompt: '{user_message}')", exc_info=True)
+
+    except ValueError as ve: # From text_model safety block usually
+        logging.error(f"ValueError calling Gemini API (text model): {ve} (Prompt: '{user_message}')", exc_info=True)
         if "prompt" in str(ve).lower() and ("blocked" in str(ve).lower() or "safety" in str(ve).lower()):
             chatbot_text_response = "I'm sorry, your request was blocked by the safety filters. Please try a different prompt."
         elif "SAFETY" in str(ve).upper():
              chatbot_text_response = "I'm sorry, your request triggered a safety filter. Please rephrase."
         else:
             chatbot_text_response = "A value or configuration error occurred processing your request."
-    except Exception as e:
+    except Exception as e: # Generic catch-all
         logging.error(f"Generic error for prompt '{user_message}': {e}", exc_info=True)
         chatbot_text_response = "An unexpected error occurred. Please try again."
 
@@ -185,7 +177,6 @@ def send_message():
     })
 
 if __name__ == '__main__':
-    # The module-level gemini_api_key is already set (or None) by the time this runs
     if not gemini_api_key:
         logging.critical("GEMINI_API_KEY is not set. App will likely fail if API calls are made.")
     app.run(debug=True, host='0.0.0.0', port=5000)
