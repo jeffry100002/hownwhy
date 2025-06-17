@@ -1,7 +1,7 @@
 import os
 from flask import Flask, render_template, request, jsonify
 import google.generativeai as genai
-from google.generativeai import types # Ensure types is imported
+from google.generativeai import types
 from PIL import Image
 import io
 import base64
@@ -14,7 +14,7 @@ load_dotenv()
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-gemini_api_key = None # Initialize
+gemini_api_key = None
 try:
     gemini_api_key = os.environ['GEMINI_API_KEY']
     if not gemini_api_key:
@@ -111,12 +111,15 @@ def send_message():
 
         if image_prompt_from_ai:
             logging.info(f"AI suggested image generation with prompt: '{image_prompt_from_ai}'")
-            image_gen_config_instance = None
             try:
-                # MODIFICATION HERE: Reverting to call without generation_config as response_modalities experiments failed
-                logging.info("Calling image_model.generate_content without explicit generation_config for modalities.")
+                image_gen_config = types.GenerationConfig()
+                # MODIFICATION HERE: Order of modalities changed to match error message
+                image_gen_config.response_modalities = ['IMAGE', 'TEXT']
+
+                logging.info(f"Attempting image generation with config: response_modalities={image_gen_config.response_modalities}")
                 image_gen_api_response = image_model.generate_content(
-                    contents=[image_prompt_from_ai]
+                    contents=[image_prompt_from_ai],
+                    generation_config=image_gen_config
                 )
                 image_generated_this_turn = False
                 text_accompanying_image = []
@@ -142,9 +145,9 @@ def send_message():
                 elif not (image_gen_api_response.prompt_feedback and image_gen_api_response.prompt_feedback.block_reason):
                     logging.warning("AI suggested an image, but image model did not return image data (and not due to prompt block).")
 
-            except TypeError as te: # Specifically catch TypeError from GenerateContentConfig
-                logging.error(f"TypeError during image generation, likely with GenerateContentConfig: {te}", exc_info=True)
-                chatbot_text_response += f"\n*(Sorry, there was a configuration error trying to prepare the image request: {str(te)})*"
+            except AttributeError as ae: # Specifically catch if response_modalities cannot be set
+                logging.error(f"AttributeError setting response_modalities: {ae}", exc_info=True)
+                chatbot_text_response += f"\n*(Sorry, there's a configuration problem setting image properties: {str(ae)})*"
             except Exception as img_e:
                 logging.error(f"Error during AI-suggested image generation: {img_e}", exc_info=True)
                 chatbot_text_response += f"\n*(Sorry, I couldn't generate the suggested image: {str(img_e)})*"

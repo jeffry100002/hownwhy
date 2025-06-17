@@ -41,7 +41,7 @@ class ChatbotAppTestCase(unittest.TestCase):
         type(mock_text_candidate.content).parts = PropertyMock(return_value=[mock_text_part])
         type(mock_text_response_obj).candidates = [mock_text_candidate]
         type(mock_text_response_obj).prompt_feedback = PropertyMock(return_value=None)
-        type(mock_text_response_obj).text = ai_raw_text_with_tag # For simpler access if app.py uses it
+        type(mock_text_response_obj).text = ai_raw_text_with_tag
         mock_text_gen.return_value = mock_text_response_obj
 
         # 2. Mock image_model response
@@ -77,14 +77,20 @@ class ChatbotAppTestCase(unittest.TestCase):
 
         mock_text_gen.assert_called_once()
 
-        # MODIFIED ASSERTION for image_model.generate_content()
-        # image_model.generate_content is now called without generation_config
-        mock_image_gen.assert_called_once_with(contents=['a happy dog with a wagging tail'])
+        mock_image_gen.assert_called_once()
+        args, kwargs = mock_image_gen.call_args
+        self.assertEqual(kwargs['contents'], ['a happy dog with a wagging tail'])
+        self.assertIn('generation_config', kwargs)
+        gen_config_arg = kwargs['generation_config']
+        self.assertTrue(hasattr(gen_config_arg, 'response_modalities'))
+        # MODIFIED ASSERTION HERE: Expect ['IMAGE', 'TEXT']
+        self.assertEqual(gen_config_arg.response_modalities, ['IMAGE', 'TEXT'])
 
 
     @patch.object(text_model, 'generate_content')
     @patch.object(image_model, 'generate_content')
     def test_ai_does_not_suggest_image(self, mock_image_gen, mock_text_gen):
+        # This test remains the same
         mock_text_response_obj = MagicMock()
         ai_raw_text_no_tag = "This is a simple text response."
         mock_text_part = MagicMock()
@@ -109,6 +115,7 @@ class ChatbotAppTestCase(unittest.TestCase):
     @patch.object(text_model, 'generate_content')
     @patch.object(image_model, 'generate_content')
     def test_ai_suggests_image_but_image_gen_fails_due_to_block(self, mock_image_gen, mock_text_gen):
+        # This test also needs the updated assertion for response_modalities
         mock_text_response_obj = MagicMock()
         ai_raw_text_with_tag = "Let's try this: [GENERATE_IMAGE: a controversial image]"
         mock_text_part = MagicMock()
@@ -136,34 +143,39 @@ class ChatbotAppTestCase(unittest.TestCase):
         self.assertIn("The suggested image 'a controversial image' was blocked by safety filters.", data['text'])
         self.assertIsNone(data['image_url'])
 
-        # MODIFIED ASSERTION for image_model.generate_content()
-        # image_model.generate_content is now called without generation_config
-        mock_image_gen.assert_called_once_with(contents=['a controversial image'])
+        mock_image_gen.assert_called_once()
+        args, kwargs = mock_image_gen.call_args
+        self.assertEqual(kwargs['contents'], ['a controversial image'])
+        self.assertIn('generation_config', kwargs)
+        gen_config_arg = kwargs['generation_config']
+        self.assertTrue(hasattr(gen_config_arg, 'response_modalities'))
+        # MODIFIED ASSERTION HERE: Expect ['IMAGE', 'TEXT']
+        self.assertEqual(gen_config_arg.response_modalities, ['IMAGE', 'TEXT'])
 
     @patch.object(text_model, 'generate_content')
     def test_initial_text_prompt_blocked(self, mock_text_gen):
+        # This test remains the same
         mock_text_response_obj = MagicMock()
         mock_prompt_feedback = MagicMock()
         type(mock_prompt_feedback).block_reason = "SAFETY"
         type(mock_prompt_feedback).block_reason_message = "Initial text prompt blocked"
         type(mock_text_response_obj).candidates = PropertyMock(return_value=[])
         type(mock_text_response_obj).prompt_feedback = mock_prompt_feedback
-        type(mock_text_response_obj).text = PropertyMock(return_value="") # Ensure .text is empty or non-existent
+        type(mock_text_response_obj).text = PropertyMock(return_value="")
         mock_text_gen.return_value = mock_text_response_obj
 
         response = self.app_client.post('/send_message', json={'message': 'A very offensive prompt'})
         data = response.get_json()
 
         self.assertEqual(response.status_code, 200)
-        # The error message in app.py for this case is "I'm sorry, your request was blocked by the safety filters. Please try a different prompt."
-        # This comes from the ValueError raised and caught.
         self.assertEqual(data['text'], "I'm sorry, your request was blocked by the safety filters. Please try a different prompt.")
         self.assertIsNone(data['image_url'])
         mock_text_gen.assert_called_once()
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": ""})
     def test_send_message_no_api_key_recheck(self):
-        with patch('app.gemini_api_key', None): # Patch the module-level variable in app
+        # This test remains the same
+        with patch('app.gemini_api_key', None):
             response = self.app_client.post('/send_message', json={'message': 'Any message'})
             data = response.get_json()
             self.assertEqual(response.status_code, 200)
