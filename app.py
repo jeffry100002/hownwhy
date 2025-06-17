@@ -27,7 +27,7 @@ except KeyError:
 
 text_model_name = "gemini-1.5-flash-latest"
 image_model_name = "gemini-2.0-flash-preview-image-generation"
-text_generation_config_dict = { # Renamed to avoid conflict with types.GenerationConfig instance
+text_generation_config_dict = {
     "temperature": 0.8, "top_p": 0.9, "top_k": 50,
     "max_output_tokens": 4096, "response_mime_type": "text/plain",
 }
@@ -40,7 +40,7 @@ text_safety_settings = [
 text_model = genai.GenerativeModel(
     model_name=text_model_name,
     safety_settings=text_safety_settings,
-    generation_config=text_generation_config_dict, # Use the dict here
+    generation_config=text_generation_config_dict,
 )
 image_model = genai.GenerativeModel(model_name=image_model_name)
 
@@ -111,15 +111,12 @@ def send_message():
 
         if image_prompt_from_ai:
             logging.info(f"AI suggested image generation with prompt: '{image_prompt_from_ai}'")
+            image_gen_config_instance = None
             try:
-                # MODIFICATION HERE: Create GenerationConfig instance and set attribute
-                image_gen_config = types.GenerationConfig()
-                # Using order from documentation first: ['TEXT', 'IMAGE']
-                image_gen_config.response_modalities = ['TEXT', 'IMAGE']
-
+                # MODIFICATION HERE: Reverting to call without generation_config as response_modalities experiments failed
+                logging.info("Calling image_model.generate_content without explicit generation_config for modalities.")
                 image_gen_api_response = image_model.generate_content(
-                    contents=[image_prompt_from_ai],
-                    generation_config=image_gen_config # Pass the configured instance
+                    contents=[image_prompt_from_ai]
                 )
                 image_generated_this_turn = False
                 text_accompanying_image = []
@@ -142,24 +139,23 @@ def send_message():
                 if image_generated_this_turn:
                     if text_accompanying_image:
                         chatbot_text_response += "\n\n---\n*Image description from model:* " + " ".join(text_accompanying_image)
-                elif not (image_gen_api_response.prompt_feedback and image_gen_api_response.prompt_feedback.block_reason): # Avoid double message
+                elif not (image_gen_api_response.prompt_feedback and image_gen_api_response.prompt_feedback.block_reason):
                     logging.warning("AI suggested an image, but image model did not return image data (and not due to prompt block).")
 
-            except Exception as img_e: # Catch potential AttributeError if response_modalities cannot be set
-                logging.error(f"Error during AI-suggested image generation (could be AttributeError or API error): {img_e}", exc_info=True)
-                if isinstance(img_e, AttributeError) and 'response_modalities' in str(img_e):
-                    chatbot_text_response += f"\n*(Sorry, there's a configuration issue setting image properties: {str(img_e)})*"
-                else: # For other errors, including potential 400 from API
-                    chatbot_text_response += f"\n*(Sorry, I couldn't generate the suggested image: {str(img_e)})*"
+            except TypeError as te: # Specifically catch TypeError from GenerateContentConfig
+                logging.error(f"TypeError during image generation, likely with GenerateContentConfig: {te}", exc_info=True)
+                chatbot_text_response += f"\n*(Sorry, there was a configuration error trying to prepare the image request: {str(te)})*"
+            except Exception as img_e:
+                logging.error(f"Error during AI-suggested image generation: {img_e}", exc_info=True)
+                chatbot_text_response += f"\n*(Sorry, I couldn't generate the suggested image: {str(img_e)})*"
 
         if not chatbot_text_response.strip() and not image_data_uri:
             logging.info("Response is empty after processing, using default.")
             chatbot_text_response = "I received your message and processed it, but I don't have a specific text reply or image for this."
-        elif not chatbot_text_response.strip() and image_data_uri: # Image generated, but main text was only the tag
+        elif not chatbot_text_response.strip() and image_data_uri:
              chatbot_text_response = "Here's an image based on our conversation:"
 
-
-    except ValueError as ve: # From text_model safety block usually
+    except ValueError as ve:
         logging.error(f"ValueError calling Gemini API (text model): {ve} (Prompt: '{user_message}')", exc_info=True)
         if "prompt" in str(ve).lower() and ("blocked" in str(ve).lower() or "safety" in str(ve).lower()):
             chatbot_text_response = "I'm sorry, your request was blocked by the safety filters. Please try a different prompt."
@@ -167,7 +163,7 @@ def send_message():
              chatbot_text_response = "I'm sorry, your request triggered a safety filter. Please rephrase."
         else:
             chatbot_text_response = "A value or configuration error occurred processing your request."
-    except Exception as e: # Generic catch-all
+    except Exception as e:
         logging.error(f"Generic error for prompt '{user_message}': {e}", exc_info=True)
         chatbot_text_response = "An unexpected error occurred. Please try again."
 

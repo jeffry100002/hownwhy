@@ -8,7 +8,7 @@ import re
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 os.environ['GEMINI_API_KEY'] = 'test_api_key_value'
 
-from app import app, text_model, image_model, types # Ensure types is available
+from app import app, text_model, image_model, types
 
 class ChatbotAppTestCase(unittest.TestCase):
 
@@ -78,16 +78,8 @@ class ChatbotAppTestCase(unittest.TestCase):
         mock_text_gen.assert_called_once()
 
         # MODIFIED ASSERTION for image_model.generate_content()
-        mock_image_gen.assert_called_once()
-        args, kwargs = mock_image_gen.call_args
-        self.assertEqual(kwargs['contents'], ['a happy dog with a wagging tail'])
-        self.assertIn('generation_config', kwargs)
-        gen_config_arg = kwargs['generation_config']
-        # Check if it's a mock object (which it will be if app.py creates it and passes it)
-        # or an actual GenerationConfig if the mock setup needs to be more elaborate.
-        # For now, assume it's an object that should have the attribute.
-        self.assertTrue(hasattr(gen_config_arg, 'response_modalities'))
-        self.assertEqual(gen_config_arg.response_modalities, ['TEXT', 'IMAGE'])
+        # image_model.generate_content is now called without generation_config
+        mock_image_gen.assert_called_once_with(contents=['a happy dog with a wagging tail'])
 
 
     @patch.object(text_model, 'generate_content')
@@ -145,13 +137,8 @@ class ChatbotAppTestCase(unittest.TestCase):
         self.assertIsNone(data['image_url'])
 
         # MODIFIED ASSERTION for image_model.generate_content()
-        mock_image_gen.assert_called_once()
-        args, kwargs = mock_image_gen.call_args
-        self.assertEqual(kwargs['contents'], ['a controversial image'])
-        self.assertIn('generation_config', kwargs)
-        gen_config_arg = kwargs['generation_config']
-        self.assertTrue(hasattr(gen_config_arg, 'response_modalities'))
-        self.assertEqual(gen_config_arg.response_modalities, ['TEXT', 'IMAGE'])
+        # image_model.generate_content is now called without generation_config
+        mock_image_gen.assert_called_once_with(contents=['a controversial image'])
 
     @patch.object(text_model, 'generate_content')
     def test_initial_text_prompt_blocked(self, mock_text_gen):
@@ -176,7 +163,7 @@ class ChatbotAppTestCase(unittest.TestCase):
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": ""})
     def test_send_message_no_api_key_recheck(self):
-        with patch('app.gemini_api_key', None):
+        with patch('app.gemini_api_key', None): # Patch the module-level variable in app
             response = self.app_client.post('/send_message', json={'message': 'Any message'})
             data = response.get_json()
             self.assertEqual(response.status_code, 200)
