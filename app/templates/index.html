@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Vehicle Detection</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Vehicle Detection</h1>
+    <div class="container">
+        <div class="video-container">
+            <img src="{{ url_for('video_feed') }}" width="100%">
+        </div>
+        <div class="info-container">
+            <h2>Vehicle Information</h2>
+            <div id="info">
+                <p>No vehicle detected.</p>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
